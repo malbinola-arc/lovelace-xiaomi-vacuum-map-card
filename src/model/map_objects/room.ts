@@ -3,27 +3,26 @@ import { css, CSSResultGroup, svg, SVGTemplateResult } from "lit";
 import { forwardHaptic } from "custom-card-helpers";
 
 import { Context } from "./context";
-import { MapObject } from "./map-object";
 import { deleteFromArray } from "../../utils";
 import { RoomConfig } from "../../types/types";
+import {PredefinedMapObject} from "./predefined-map-object";
 
-export class Room extends MapObject {
-    private _selected: boolean;
+export class Room extends PredefinedMapObject {
     private readonly _config: RoomConfig;
 
     constructor(config: RoomConfig, context: Context) {
-        super(context);
+        super(config, context);
         this._config = config;
-        this._selected = false;
     }
 
     public render(): SVGTemplateResult {
         const poly = (this._config?.outline ?? []).map(p => this.vacuumToScaledMap(p[0], p[1]));
         return svg`
-            <g class="room-wrapper ${this._selected ? "selected" : ""} room-${this._config.id}-wrapper">
-                <polygon class="room-outline"
+            <g class="room-wrapper ${this._selected ? "selected" : ""} 
+            room-${`${this._config.id}`.replace(/[^a-zA-Z0-9_\-]/gm, "_")}-wrapper">
+                <polygon class="room-outline clickable"
                          points="${poly.map(p => p.join(", ")).join(" ")}"
-                         @click="${(): void => this._click()}">
+                         @click="${async (): Promise<void> => this._click()}">
                 </polygon>
                 ${this.renderIcon(this._config.icon, () => this._click(), "room-icon-wrapper")}
                 ${this.renderLabel(this._config.label, "room-label")}
@@ -35,27 +34,29 @@ export class Room extends MapObject {
         return this._config.id;
     }
 
-    private _click(): void {
+    private async _click(): Promise<void> {
         if (!this._selected && this._context.selectedRooms().length >= this._context.maxSelections()) {
             forwardHaptic("failure");
             return;
         }
-        this._selected = !this._selected;
+        this._toggleSelected();
         if (this._selected) {
             this._context.selectedRooms().push(this);
         } else {
             deleteFromArray(this._context.selectedRooms(), this);
         }
-        if (this._context.runImmediately()) {
+        this._context.selectionChanged();
+        if (await this._context.runImmediately()) {
             this._selected = false;
             deleteFromArray(this._context.selectedRooms(), this);
+            this._context.selectionChanged();
             return;
         }
         forwardHaptic("selection");
         this.update();
     }
 
-    static get styles(): CSSResultGroup {
+    public static get styles(): CSSResultGroup {
         return css`
             .room-wrapper {
             }
@@ -74,21 +75,19 @@ export class Room extends MapObject {
             .room-icon-wrapper {
                 x: var(--x-icon);
                 y: var(--y-icon);
-                height: var(--map-card-internal-room-icon-size);
-                width: var(--map-card-internal-room-icon-size);
-                border-radius: calc(var(--map-card-internal-room-icon-size) / 2);
+                height: var(--map-card-internal-room-icon-wrapper-size);
+                width: var(--map-card-internal-room-icon-wrapper-size);
+                border-radius: var(--map-card-internal-small-radius);
                 transform-box: fill-box;
-                transform: scale(calc(1 / var(--map-scale)))
-                    translate(
-                        calc(var(--map-card-internal-room-icon-size) / -2),
-                        calc(var(--map-card-internal-room-icon-size) / -2)
-                    );
+                overflow: hidden;
+                transform: translate(
+                        calc(var(--map-card-internal-room-icon-wrapper-size) / -2),
+                        calc(var(--map-card-internal-room-icon-wrapper-size) / -2)
+                    )
+                    scale(calc(1 / var(--map-scale)));
                 background: var(--map-card-internal-room-icon-background-color);
                 color: var(--map-card-internal-room-icon-color);
-                padding: var(--map-card-internal-room-icon-padding);
-                --mdc-icon-size: calc(
-                    var(--map-card-internal-room-icon-size) - var(--map-card-internal-room-icon-padding) * 2
-                );
+                --mdc-icon-size: var(--map-card-internal-room-icon-size);
                 transition: color var(--map-card-internal-transitions-duration) ease,
                     background var(--map-card-internal-transitions-duration) ease;
             }
@@ -97,10 +96,6 @@ export class Room extends MapObject {
                 text-anchor: middle;
                 dominant-baseline: middle;
                 pointer-events: none;
-                transform: translate(
-                    calc(var(--offset-x) / var(--map-scale)),
-                    calc(var(--offset-y) / var(--map-scale))
-                );
                 font-size: calc(var(--map-card-internal-room-label-font-size) / var(--map-scale));
                 fill: var(--map-card-internal-room-label-color);
                 transition: color var(--map-card-internal-transitions-duration) ease,
@@ -112,7 +107,7 @@ export class Room extends MapObject {
                 fill: var(--map-card-internal-room-outline-fill-color-selected);
             }
 
-            .room-wrapper.selected > .room-icon-wrapper {
+            .room-wrapper.selected > * > .room-icon-wrapper {
                 background: var(--map-card-internal-room-icon-background-color-selected);
                 color: var(--map-card-internal-room-icon-color-selected);
             }

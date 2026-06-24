@@ -1,22 +1,26 @@
 // noinspection CssUnresolvedCustomProperty
 import { css, CSSResultGroup, svg, SVGTemplateResult } from "lit";
-import { forwardHaptic, HomeAssistant } from "custom-card-helpers";
+import { forwardHaptic } from "custom-card-helpers";
 
 import { Context } from "./context";
-import { IconConfig, PointType, PointWithRepeatsType, PredefinedPointConfig } from "../../types/types";
-import { MapObject } from "./map-object";
+import {
+    IconConfig,
+    PointType,
+    PointWithRepeatsType,
+    PredefinedPointConfig,
+} from "../../types/types";
 import { deleteFromArray } from "../../utils";
 import { MapMode } from "../map_mode/map-mode";
+import { HomeAssistantFixed } from "../../types/fixes";
+import { PredefinedMapObject } from "./predefined-map-object";
 
-export class PredefinedPoint extends MapObject {
+export class PredefinedPoint extends PredefinedMapObject {
     private readonly _config: PredefinedPointConfig;
     private readonly _iconConfig: IconConfig;
-    private _selected: boolean;
 
     constructor(config: PredefinedPointConfig, context: Context) {
-        super(context);
+        super(config, context);
         this._config = config;
-        this._selected = false;
         this._iconConfig =
             this._config.icon ??
             ({
@@ -26,101 +30,9 @@ export class PredefinedPoint extends MapObject {
             } as IconConfig);
     }
 
-    public render(): SVGTemplateResult {
-        return svg`
-            <g class="predefined-point-wrapper ${this._selected ? "selected" : ""}">
-                ${this.renderIcon(this._iconConfig, () => this._click(), "predefined-point-icon-wrapper")}
-                ${this.renderLabel(this._config.label, "predefined-point-label")}
-            </g>
-        `;
-    }
-
-    private _click(): void {
-        this._selected = !this._selected;
-        forwardHaptic("selection");
-        if (this._selected) {
-            const previous = this._context.selectedPredefinedPoint().pop();
-            if (previous !== undefined) {
-                previous._selected = false;
-            }
-            this._context.selectedPredefinedPoint().push(this);
-        } else {
-            deleteFromArray(this._context.selectedPredefinedPoint(), this);
-        }
-        if (this._context.runImmediately()) {
-            this._selected = false;
-            deleteFromArray(this._context.selectedPredefinedPoint(), this);
-            return;
-        }
-        this.update();
-    }
-
-    public toVacuum(repeats: number | null = null): PointType | PointWithRepeatsType {
-        if (typeof this._config.position === "string") {
-            return [0, 0];
-        }
-        if (repeats === null) {
-            return this._config.position;
-        }
-        return [...this._config.position, repeats];
-    }
-
-    static get styles(): CSSResultGroup {
-        return css`
-            .predefined-point-wrapper {
-            }
-
-            .predefined-point-icon-wrapper {
-                x: var(--x-icon);
-                y: var(--y-icon);
-                height: var(--map-card-internal-predefined-point-icon-size);
-                width: var(--map-card-internal-predefined-point-icon-size);
-                border-radius: calc(var(--map-card-internal-predefined-point-icon-size) / 2);
-                transform-box: fill-box;
-                transform: scale(calc(1 / var(--map-scale)))
-                    translate(
-                        calc(var(--map-card-internal-predefined-point-icon-size) / -2),
-                        calc(var(--map-card-internal-predefined-point-icon-size) / -2)
-                    );
-                background: var(--map-card-internal-predefined-point-icon-background-color);
-                color: var(--map-card-internal-predefined-point-icon-color);
-                padding: var(--map-card-internal-predefined-point-icon-padding);
-                --mdc-icon-size: calc(
-                    var(--map-card-internal-predefined-point-icon-size) -
-                        var(--map-card-internal-predefined-point-icon-padding) * 2
-                );
-                transition: color var(--map-card-internal-transitions-duration) ease,
-                    background var(--map-card-internal-transitions-duration) ease;
-            }
-
-            .predefined-point-label {
-                text-anchor: middle;
-                dominant-baseline: middle;
-                pointer-events: none;
-                transform: translate(
-                    calc(var(--offset-x) / var(--map-scale)),
-                    calc(var(--offset-y) / var(--map-scale))
-                );
-                font-size: calc(var(--map-card-internal-predefined-point-label-font-size) / var(--map-scale));
-                fill: var(--map-card-internal-predefined-point-label-color);
-                transition: color var(--map-card-internal-transitions-duration) ease,
-                    background var(--map-card-internal-transitions-duration) ease;
-            }
-
-            .predefined-point-wrapper.selected > .predefined-point-icon-wrapper {
-                background: var(--map-card-internal-predefined-point-icon-background-color-selected);
-                color: var(--map-card-internal-predefined-point-icon-color-selected);
-            }
-
-            .predefined-point-wrapper.selected > .predefined-point-label {
-                fill: var(--map-card-internal-predefined-point-label-color-selected);
-            }
-        `;
-    }
-
     public static getFromEntities(
         newMode: MapMode,
-        hass: HomeAssistant,
+        hass: HomeAssistantFixed,
         contextCreator: () => Context,
     ): PredefinedPoint[] {
         return newMode.predefinedSelections
@@ -153,5 +65,90 @@ export class PredefinedPoint extends MapObject {
                         contextCreator(),
                     ),
             );
+    }
+
+    public render(): SVGTemplateResult {
+        return svg`
+            <g class="predefined-point-wrapper ${this._selected ? "selected" : ""}">
+                ${this.renderIcon(this._iconConfig, () => this._click(), "predefined-point-icon-wrapper")}
+                ${this.renderLabel(this._config.label, "predefined-point-label")}
+            </g>
+        `;
+    }
+
+    public toVacuum(repeats: number | null = null): PointType | PointWithRepeatsType {
+        if (typeof this._config.position === "string") {
+            return [0, 0];
+        }
+        if (repeats === null) {
+            return this._config.position;
+        }
+        return [...this._config.position, repeats];
+    }
+
+    private async _click(): Promise<void> {
+        this._toggleSelected();
+        forwardHaptic("selection");
+        if (this._selected) {
+            const previous = this._context.selectedPredefinedPoint().pop();
+            if (previous !== undefined) {
+                previous._selected = false;
+            }
+            this._context.selectedPredefinedPoint().push(this);
+        } else {
+            deleteFromArray(this._context.selectedPredefinedPoint(), this);
+        }
+        if (await this._context.runImmediately()) {
+            this._selected = false;
+            deleteFromArray(this._context.selectedPredefinedPoint(), this);
+            return;
+        }
+        this.update();
+    }
+
+    public static get styles(): CSSResultGroup {
+        return css`
+            .predefined-point-wrapper {
+            }
+
+            .predefined-point-icon-wrapper {
+                x: var(--x-icon);
+                y: var(--y-icon);
+                height: var(--map-card-internal-predefined-point-icon-wrapper-size);
+                width: var(--map-card-internal-predefined-point-icon-wrapper-size);
+                border-radius: var(--map-card-internal-small-radius);
+                transform-box: fill-box;
+                overflow: hidden;
+                transform: translate(
+                        calc(var(--map-card-internal-predefined-point-icon-wrapper-size) / -2),
+                        calc(var(--map-card-internal-predefined-point-icon-wrapper-size) / -2)
+                    )
+                    scale(calc(1 / var(--map-scale)));
+                background: var(--map-card-internal-predefined-point-icon-background-color);
+                color: var(--map-card-internal-predefined-point-icon-color);
+                --mdc-icon-size: var(--map-card-internal-predefined-point-icon-size);
+                transition: color var(--map-card-internal-transitions-duration) ease,
+                    background var(--map-card-internal-transitions-duration) ease;
+            }
+
+            .predefined-point-label {
+                text-anchor: middle;
+                dominant-baseline: middle;
+                pointer-events: none;
+                font-size: calc(var(--map-card-internal-predefined-point-label-font-size) / var(--map-scale));
+                fill: var(--map-card-internal-predefined-point-label-color);
+                transition: color var(--map-card-internal-transitions-duration) ease,
+                    background var(--map-card-internal-transitions-duration) ease;
+            }
+
+            .predefined-point-wrapper.selected > * > .predefined-point-icon-wrapper {
+                background: var(--map-card-internal-predefined-point-icon-background-color-selected);
+                color: var(--map-card-internal-predefined-point-icon-color-selected);
+            }
+
+            .predefined-point-wrapper.selected > .predefined-point-label {
+                fill: var(--map-card-internal-predefined-point-label-color-selected);
+            }
+        `;
     }
 }

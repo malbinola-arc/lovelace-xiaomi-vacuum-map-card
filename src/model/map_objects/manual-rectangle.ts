@@ -7,7 +7,6 @@ import { Context } from "./context";
 import { deleteFromArray, stopEvent } from "../../utils";
 import { PointType, RectangleType, ZoneType } from "../../types/types";
 import { MapObject } from "./map-object";
-import { localize } from "../../localize/localize";
 
 enum DragMode {
     NONE,
@@ -32,6 +31,15 @@ export class ManualRectangle extends MapObject {
         this._dragMode = DragMode.NONE;
         this._vacRect = this._toVacuumFromDimensions(x, y, width, height);
         this._vacRectSnapshot = this._vacRect;
+    }
+
+    private static _toPoints(rect: RectangleType): string {
+        const points = rect
+            .filter(p => !isNaN(p[0]) && !isNaN(p[1]))
+            .map(p => p.join(", "))
+            .join(" ");
+        if (points.length == 3) console.error(`Points: ${points}`);
+        return points;
     }
 
     public render(): SVGTemplateResult {
@@ -61,9 +69,11 @@ export class ManualRectangle extends MapObject {
                          @touchcancel="${(e: MouseEvent): void => this._endDrag(e)}"
                          points="${ManualRectangle._toPoints(mapRect)}">
                 </polygon>
-                <text class="manual-rectangle-description">
-                    ${this._id} ${this._getDimensions()}
-                </text>
+                <g class="manual-rectangle-description">
+                    <text>
+                        ${this._id} ${this._getDimensions()}
+                    </text>
+                </g>
                 <circle class="manual-rectangle-delete-circle clickable"
                         @mouseup="${(e: MouseEvent): void => this._delete(e)}"></circle>
                 <path class="manual-rectangle-delete-icon"
@@ -90,19 +100,36 @@ export class ManualRectangle extends MapObject {
         return this._selectedElement != null;
     }
 
+    public externalDrag(event: MouseEvent | TouchEvent): void {
+        this._drag(event);
+    }
+
+    public toVacuum(
+        repeats: number | null = null,
+    ): [number, number, number, number] | [number, number, number, number, number] {
+        const [x1, y1, x2, y2] = this._vacRect;
+        const ordered = [Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)] as ZoneType;
+        if (repeats != null) {
+            return [...ordered, repeats];
+        }
+        return ordered;
+    }
+
     private _getDimensions(): string {
         const [x1, y1, x2, y2] = this.toVacuum();
-        const width = x2 - x1;
-        const height = y2 - y1;
-        const divider = this._context.roundingEnabled() ? 1000 : 1;
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        const divider = this._context.coordinatesToMetersDivider();
+        if (divider === -1)
+            return "";
         const rounder = (v: number): string => (v / divider).toFixed(1);
-        return `${rounder(width)}${localize("unit.meter_shortcut")} x ${rounder(height)}${localize(
+        return `${rounder(width)}${this.localize("unit.meter_shortcut")} x ${rounder(height)}${this.localize(
             "unit.meter_shortcut",
         )}`;
     }
 
     private _startDrag(event: MouseEvent | TouchEvent): void {
-        if (event instanceof TouchEvent && (event as TouchEvent).touches.length > 1) {
+        if (window.TouchEvent && event instanceof TouchEvent && (event as TouchEvent).touches.length > 1) {
             return;
         }
         // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
@@ -133,12 +160,8 @@ export class ManualRectangle extends MapObject {
         this.update();
     }
 
-    public externalDrag(event: MouseEvent | TouchEvent): void {
-        this._drag(event);
-    }
-
     private _drag(event: MouseEvent | TouchEvent): void {
-        if (event instanceof TouchEvent && (event as TouchEvent).touches.length > 1) {
+        if (window.TouchEvent && event instanceof TouchEvent && (event as TouchEvent).touches.length > 1) {
             return;
         }
         if (this._selectedElement) {
@@ -160,16 +183,23 @@ export class ManualRectangle extends MapObject {
                         break;
                     case DragMode.RESIZE:
                         const topLeftVacuumPoint = this.vacuumToMapRect(this._vacRectSnapshot)[1][0];
+                        const tmpSnapshot = [...this._vacRect] as ZoneType;
                         if (topLeftVacuumPoint[0] === this._vacRectSnapshot[0]) {
                             this._vacRect[2] = this._vacRectSnapshot[2] + diffX;
                         } else {
-                            this._vacRect[0] = this._vacRectSnapshot[0] - diffX;
+                            this._vacRect[0] = this._vacRectSnapshot[0] + diffX;
                         }
                         if (topLeftVacuumPoint[1] === this._vacRectSnapshot[1]) {
-                            this._vacRect[3] = this._vacRectSnapshot[3] - diffY;
+                            this._vacRect[3] = this._vacRectSnapshot[3] + diffY;
                         } else {
                             this._vacRect[1] = this._vacRectSnapshot[1] + diffY;
                         }
+                        if (
+                            Math.sign(this._vacRect[0] - this._vacRect[2]) !=
+                                Math.sign(tmpSnapshot[0] - tmpSnapshot[2]) ||
+                            Math.sign(this._vacRect[1] - this._vacRect[3]) != Math.sign(tmpSnapshot[1] - tmpSnapshot[3])
+                        )
+                            this._vacRect = tmpSnapshot;
                         this._setup(this.vacuumToMapRect(this._vacRect)[0]);
                         break;
                     case DragMode.NONE:
@@ -209,12 +239,8 @@ export class ManualRectangle extends MapObject {
                 this._context.selectedManualRectangles()[i]._id = (i + 1).toString();
             }
             forwardHaptic("selection");
-            this._context.update();
+            this.update();
         }
-    }
-
-    private static _toPoints(rect: RectangleType): string {
-        return rect.map(p => p.join(", ")).join(" ");
     }
 
     private _toVacuumFromDimensions(x, y, width, height): [number, number, number, number] {
@@ -227,15 +253,6 @@ export class ManualRectangle extends MapObject {
         const v1 = [vacuumStart[0], vacuumEnd[0]].sort();
         const v2 = [vacuumStart[1], vacuumEnd[1]].sort();
         return [v1[0], v2[0], v1[1], v2[1]];
-    }
-
-    public toVacuum(
-        repeats: number | null = null,
-    ): [number, number, number, number] | [number, number, number, number, number] {
-        if (repeats != null) {
-            return [...this._vacRect, repeats];
-        }
-        return this._vacRect;
     }
 
     public static get styles(): CSSResultGroup {
@@ -282,6 +299,7 @@ export class ManualRectangle extends MapObject {
                     rotate(var(--angle-description));
                 font-size: calc(var(--map-card-internal-manual-rectangle-description-font-size) / var(--map-scale));
                 fill: var(--map-card-internal-manual-rectangle-description-color);
+                background: transparent;
             }
 
             .manual-rectangle-delete-circle {

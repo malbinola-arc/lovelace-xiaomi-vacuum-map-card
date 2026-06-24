@@ -11,20 +11,22 @@ jobs:
     steps:
       - uses: actions/checkout@v1
 
-      # Build
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 14
+
       - name: Build the file
         run: |
-          cd /home/runner/work/lovelace-xiaomi-vacuum-map-card/lovelace-xiaomi-vacuum-map-card
-          npm install
+          npm ci
+          npm version --git-tag-version=false --commit-hooks=false "${{ github.event.release.tag_name }}"
           npm run build
 
-      # Upload build file to the release as an asset.
-      - name: Upload zip to release
+      - name: Upload build result to release
         uses: svenstaro/upload-release-action@v1-release
 
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /home/runner/work/lovelace-xiaomi-vacuum-map-card/lovelace-xiaomi-vacuum-map-card/dist/xiaomi-vacuum-map-card.js
+          file: dist/xiaomi-vacuum-map-card.js
           asset_name: xiaomi-vacuum-map-card.js
           tag: ${{ github.ref }}
           overwrite: true
